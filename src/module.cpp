@@ -103,6 +103,10 @@ bool Module::load(const uint8_t *data, size_t size) {
 			}
 		} else {
 			Sample &s = ins.sample;
+			s.name.assign(reinterpret_cast<const char *>(p), 24);
+			s.name = s.name.substr(0, s.name.find('\0'));
+			while (!s.name.empty() && s.name.back() == ' ')
+				s.name.pop_back();
 			s.words = be16(p + 24);
 			s.loop_bytes = be16(p + 26);
 			s.loop_words = be16(p + 28);

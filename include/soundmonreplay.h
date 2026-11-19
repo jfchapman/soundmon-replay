@@ -120,6 +120,12 @@ SMON_API const char *smon_title(const smon_module *module);
 SMON_API const char *smon_format(const smon_module *module);
 
 /*
+ * The name of instrument 1-15, with trailing spaces removed: a sample instrument's name as the
+ * editor stored it, or "" for a synth instrument (which has no name) or a number out of range.
+ */
+SMON_API const char *smon_instrument_name(const smon_module *module, int instrument);
+
+/*
  * Number of subsongs: a SoundMon song can hold several, each a run of steps that loops on its
  * own. Subsong 0 starts at step 0; the others start at steps that subsong 0 never reaches.
  */

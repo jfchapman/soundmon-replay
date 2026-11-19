@@ -232,6 +232,12 @@ const char *smon_format(const smon_module *m) {
 	return m->song.version == smon::Version::BPSM ? "BPSM" : m->song.version == smon::Version::V3 ? "V.3" : "V.2";
 }
 
+const char *smon_instrument_name(const smon_module *m, int instrument) {
+	if (!m || instrument < 1 || instrument > 15 || m->song.instruments[instrument].synth)
+		return "";
+	return m->song.instruments[instrument].sample.name.c_str();
+}
+
 int smon_subsong_count(const smon_module *m) { return m ? int(m->subsongs.size()) : 0; }
 
 int smon_get_subsong_info(const smon_module *m, int index, smon_subsong_info *info) {

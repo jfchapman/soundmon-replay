@@ -10,6 +10,7 @@ namespace smon {
 enum class Version { BPSM, V2, V3 };
 
 struct Sample {
+	std::string name;
 	uint32_t offset = 0;  // byte offset of the sample data in the file
 	uint16_t words = 0;
 	uint16_t loop_bytes = 0;  // loop start, in bytes
