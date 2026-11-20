@@ -1,9 +1,9 @@
 # SoundMonReplay
 
-A C library that renders Brian Postma's SoundMon songs (Amiga, from 1989): BP SoundMon 1
+A C library that renders Brian Postma's SoundMon format (Amiga, from 1989): BP SoundMon 1
 (`BPSM`), 2 (`V.2`) and 3 (`V.3`) files, as found in modland's `BP SoundMon 1/2/3` folders.
 
-It's a clean-room replayer: written from a description of the format (docs/SoundMon-format.md)
+It's a clean-room replayer: written from a description of the [format](docs/SoundMon-format.md)
 and checked, tick by tick, against the original replayers running in an Amiga emulator, without
 reading any replayer's code. Paula's register writes match the originals exactly on the songs
 compared so far; see Status.
