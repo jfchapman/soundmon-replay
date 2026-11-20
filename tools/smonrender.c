@@ -11,6 +11,8 @@
  *   -f model    fixed output filter: a500 (default), a1200, none
  *   -L mode     LED filter: song (default), off, on
  *   -p n        stereo separation 0-100 (default 100)
+ *   -R us       volume ramping in microseconds, 0 = off (default 2000)
+ *   -V n        only Paula channel n (0-3) is heard
  *   -d          print the subsongs and their lengths, and render nothing
  */
 #include <stdio.h>
@@ -31,19 +33,19 @@ static void put16(FILE *f, unsigned v) {
 
 static void usage(void) {
 	fprintf(stderr, "usage: smonrender [-r rate] [-s subsong] [-l loops] [-F fade] [-t seconds] [-i none|linear|cubic]\n"
-	                "                  [-f a500|a1200|none] [-L song|off|on] [-p separation] [-d] song.bp [out.wav]\n");
+	                "                  [-f a500|a1200|none] [-L song|off|on] [-p separation] [-R ramping] [-V channel] [-d] song.bp [out.wav]\n");
 }
 
 int main(int argc, char **argv) {
 	smon_settings settings;
-	int subsong = 0, describe = 0;
+	int subsong = 0, describe = 0, voice = -1;
 	double limit = -1;
 	const char *in = NULL, *outname = NULL;
 	int i;
 	smon_default_settings(&settings);
 	for (i = 1; i < argc; i++) {
 		const char *a = argv[i];
-		if (a[0] == '-' && a[1] && !a[2] && strchr("rslFtifLp", a[1]) && i + 1 < argc) {
+		if (a[0] == '-' && a[1] && !a[2] && strchr("rslFtifLpRV", a[1]) && i + 1 < argc) {
 			const char *v = argv[++i];
 			switch (a[1]) {
 			case 'r': settings.sample_rate = atoi(v); break;
@@ -62,6 +64,8 @@ int main(int argc, char **argv) {
 				settings.led_filter = !strcmp(v, "on") ? SMON_LED_ON : !strcmp(v, "off") ? SMON_LED_OFF : SMON_LED_SONG;
 				break;
 			case 'p': settings.stereo_separation = atoi(v); break;
+			case 'R': settings.volume_ramping = atoi(v); break;
+			case 'V': voice = atoi(v); break;
 			}
 		} else if (!strcmp(a, "-d")) {
 			describe = 1;
@@ -125,6 +129,8 @@ int main(int argc, char **argv) {
 		return 2;
 	}
 
+	if (voice >= 0)
+		smon_set_voice_mask(m, 1u << voice);
 	FILE *o = fopen(outname, "wb");
 	if (!o) {
 		fprintf(stderr, "can't write %s\n", outname);
