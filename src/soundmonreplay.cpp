@@ -28,14 +28,44 @@ struct Subsong {
 	bool audible = false;
 };
 
+// For each row (step * 16 + row), whether the V.2 repeat counter can still change what plays from
+// there: whether, going on through the rows in order, the next repeat option is option 7 (which
+// reads the counter) rather than option 6 (which sets it). Until a jump the rows run in order, and
+// only option 7 jumps.
+std::vector<bool> repeat_live(const smon::Module &m) {
+	const int n = m.step_count * 16;
+	std::vector<int> event(size_t(n), 0);  // 7, 6 or 0 (neither) on each row, the first voice in order
+	for (int p = 0; p < n; p++)
+		for (int v = 3; v >= 0 && !event[size_t(p)]; v--) {
+			const smon::Entry &e = m.steps[size_t(p / 16) * 4 + size_t(v)];
+			const int option = m.row(e.track, p % 16).option;
+			if (option == 6 || option == 7)
+				event[size_t(p)] = option;
+		}
+	// The next event at or after each row, going round past the last step; twice round settles it.
+	std::vector<bool> live(size_t(n), false);
+	int next = 0;
+	for (int i = 2 * n - 1; i >= 0; i--) {
+		const int p = i % n;
+		if (event[size_t(p)])
+			next = event[size_t(p)];
+		live[size_t(p)] = next == 7;
+	}
+	return live;
+}
+
 // Plays a song from a step without sound and finds where it starts repeating: the first row read
-// a second time in the same state (step, row and, for V.2, the repeat counter).
+// a second time in the same state: step, row, speed, LED filter and, for V.2, the repeat counter
+// while it can still change what plays (alien breed - menu long sets it again before using it, so
+// the song repeats from its start although the counter is different there). The speed matters
+// where a subsong starts before the song's own speed setting (wacky darts (longer)).
 Subsong analyse(const smon::Module &m, int start, std::set<int> &visited) {
 	Subsong s;
 	s.start_step = start;
 	smon::Replayer r(m);
 	r.start(start);
-	std::map<std::tuple<int, int, int>, int> seen;
+	std::map<std::tuple<int, int, int, int, int>, int> seen;
+	const std::vector<bool> live = m.version == smon::Version::V3 ? std::vector<bool>() : repeat_live(m);
 	std::vector<int> note_ticks;
 	std::vector<smon::Write> out;
 	for (int t = 0; t < kMaxTicks; t++) {
@@ -52,8 +82,10 @@ Subsong analyse(const smon::Module &m, int start, std::set<int> &visited) {
 		visited.insert(e.step);
 		// A repeat counter that has wrapped (a loop without option 6 runs 255 times) counts as one
 		// state, so such a loop is found on its second pass.
-		const int rep = std::min(r.repeat_counter(), 9);
-		auto key = std::make_tuple(e.step, e.row, m.version == smon::Version::V3 ? 0 : rep);
+		const int next = r.step() * 16 + r.row();  // the row read next, after any jump
+		const bool counts = !live.empty() && next >= 0 && next < int(live.size()) && live[size_t(next)];
+		const int rep = counts ? std::min(r.repeat_counter(), 9) : 0;
+		auto key = std::make_tuple(e.step, e.row, rep, r.speed(), r.filter());
 		auto it = seen.find(key);
 		if (it != seen.end()) {
 			s.ticks = t;
