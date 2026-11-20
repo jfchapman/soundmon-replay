@@ -59,9 +59,16 @@ int Replayer::table_entry(int table, int index) const {
 	return at < empty_ ? mem_[at] : 0;
 }
 
+int Replayer::table_speed(int speed) const {
+	// Speed 0 is 256 ticks per entry in V.3; in V.2 (and SoundMon 1) the table never moves on.
+	return speed ? speed : m_.version == Version::V3 ? 256 : 0;
+}
+
 int Replayer::entry_index(int t, int delay, int speed) {
 	// Entry 0 from the note, entry k >= 1 from tick 1 + delay + k * speed (speed 0 = 256).
-	const int s = speed ? speed : 256;
+	if (!speed)
+		return 0;  // a table that never moves on
+	const int s = speed;
 	if (t < 1 + delay + s)
 		return 0;
 	return (t - 1 - delay) / s;
@@ -76,8 +83,33 @@ void Replayer::restore_copy(Voice &x) {
 	x.has_copy = false;
 }
 
+// A synth note's copy of its waveform (docs/SoundMon-format.md, section 6.1). V.2 takes it at the
+// note, whatever the instrument. V.3 takes it once every voice has read the row, so that a voice
+// on the same waveform has put its own copy back first, and only for an instrument with a
+// waveform effect (EG, FX or Mod): without one there's no copy, nothing is written back at the
+// next note, and options B and D can't start an FX.
+void Replayer::note_copy(Voice &x) {
+	x.copy_pending = false;
+	const bool v3 = m_.version == Version::V3;
+	const Synth &s = m_.instruments[x.instrument].syn;
+	if (v3 && !(s.eg_ctl || s.fx || s.mod_ctl))
+		return;
+	const uint32_t w = x.wave_at;
+	take_copy(x, w);
+	// V.2 byte 19, with the EG on: the note starts with the waveform's first (byte 19 / 8) bytes
+	// negated, and the EG carries on from there. (Values 1-7 do something else in the original,
+	// not modelled: no known song has them with the EG on.)
+	if (!v3 && s.eg_ctl && s.eg_b19 >= 8) {
+		x.eg_n = std::min(s.eg_b19 >> 3, 31);
+		for (int i = 0; i < x.eg_n; i++)
+			if (w + uint32_t(i) < empty_)
+				mem_[w + uint32_t(i)] = uint8_t(-int8_t(x.copy[i]));
+	}
+}
+
 void Replayer::take_copy(Voice &x, uint32_t at) {
 	x.wave_at = at;
+	x.eg_n = 0;
 	for (int i = 0; i < 32; i++)
 		x.copy[i] = at + uint32_t(i) < empty_ ? mem_[at + uint32_t(i)] : 0;
 	x.has_copy = true;
@@ -157,10 +189,17 @@ void Replayer::tick(std::vector<Write> &out) {
 			x.period = period_of(x.note + off);
 			put(out, 3 - v, Reg::PER, uint32_t(x.period));
 		}
-		for (Voice &x : voice_) {
-			// The synth part works from the period and volume before the row.
+		// The synth part, before the row (so on a note's tick it plays on with the old note's
+		// state, and what a row changes is heard from the next tick).
+		for (int v = 3; v >= 0; v--) {
+			Voice &x = voice_[v];
 			x.synth_period = x.period;
 			x.synth_volume = x.volume;
+			if (!x.playing || !x.synth)
+				continue;
+			synth_effects(v, out);
+			if (m_.instruments[x.instrument].syn.lfo_ctl && x.lfo_write)
+				put(out, 3 - v, Reg::PER, uint32_t(x.synth_period + x.lfo));
 		}
 	}
 
@@ -178,6 +217,10 @@ void Replayer::tick(std::vector<Write> &out) {
 			const Row r = m_.row(e.track, row_);
 			noted[v] = voice_row(v, r, e, dma, out);
 		}
+		// V.3 takes a synth note's copy once every voice has read the row (note_copy).
+		for (int v = 3; v >= 0; v--)
+			if (voice_[v].copy_pending)
+				note_copy(voice_[v]);
 		for (int ch = 0; ch < 4; ch++)
 			if (dma & (1u << ch))
 				put(out, ch, Reg::DMA_ON, 0);
@@ -200,19 +243,13 @@ void Replayer::tick(std::vector<Write> &out) {
 		count_ = speed_ ? speed_ : 256;
 	}
 
-	if (v3) {
-		// The synth part, after the row.
-		for (int v = 3; v >= 0; v--) {
-			Voice &x = voice_[v];
-			if (!x.playing || noted[v] || !x.synth)
-				continue;
-			synth_effects(v, out);
-			if (m_.instruments[x.instrument].syn.lfo_ctl && x.lfo_write)
-				put(out, 3 - v, Reg::PER, uint32_t(x.synth_period + x.lfo));
+	for (Voice &x : voice_) {
+		x.since_note++;
+		if (x.fx_next >= 0) {
+			x.fx = x.fx_next;
+			x.fx_next = -1;
 		}
 	}
-	for (Voice &x : voice_)
-		x.since_note++;
 	ticks_++;
 	out_ = nullptr;
 }
@@ -290,9 +327,13 @@ bool Replayer::voice_row(int v, const Row &r, const Entry &e, uint32_t &dma, std
 				const Synth &s = I.syn;
 				restore_copy(x);
 				const uint32_t w = m_.wave_base + uint32_t(s.wave) * 64;
-				take_copy(x, w);
+				x.wave_at = w;
+				x.copy_pending = true;
+				if (!v3)
+					note_copy(x);
 				x.synth = true;
 				x.fx = s.fx;
+				x.fx_count = 0;
 				x.adsr_pos = 0;
 				x.adsr_count = 1;
 				x.adsr_restart = false;
@@ -367,15 +408,19 @@ bool Replayer::voice_row(int v, const Row &r, const Entry &e, uint32_t &dma, std
 		x.arp_cont_on = d != 0;
 		break;
 	case kOptionFx:
-		if (v3)
-			x.fx = d;
+		// From the next tick. A note that restarts the sound sets its instrument's own type,
+		// which wins over B on the same row.
+		if (v3 && !(r.note != 0 && !keep_sound))
+			x.fx_next = d;
 		break;
 	case kOptionFxSwap:
 	case kOptionRestartAdsr:
 	case kOptionNewNote:
 		if (v3) {
-			if (opt == kOptionFxSwap && x.fx >= 2 && x.fx <= 5)
-				x.fx ^= 1;
+			// D flips the type's lowest bit (inversion and transform swap direction; averaging
+			// goes off), from the next tick.
+			if (opt == kOptionFxSwap)
+				x.fx_next = (x.fx_next >= 0 ? x.fx_next : x.fx) ^ 1;
 			if (opt != kOptionNewNote)
 				x.adsr_restart = true;  // D and E: the ADSR starts again
 			// The arpeggio, as option 9 sets it. (A new note's period reaches Paula on the next
@@ -402,6 +447,15 @@ void Replayer::synth_effects(int v, std::vector<Write> &out) {
 	// table: each time the counter runs out, the entry at the position is written and the
 	// position moves on. A note sets the position to 0 and the counter to run out on the next
 	// tick. Played once, it writes nothing after its last entry, so the volume stays.
+	// A restart (V.3 options 9, D, E, on the row before) puts the position back to 0, keeping the
+	// counter's rhythm; a synth without ADSR gets a single volume instead.
+	if (x.adsr_restart) {
+		x.adsr_restart = false;
+		if (s.adsr_ctl && s.adsr_len)
+			x.adsr_pos = 0;
+		else
+			x.hold_next = true;
+	}
 	const int volume = v3 ? x.synth_volume : x.volume;
 	if (x.hold_next) {
 		// V.3: options 9, D and E on a synth without ADSR still restart it, once: entry 0 of
@@ -411,7 +465,7 @@ void Replayer::synth_effects(int v, std::vector<Write> &out) {
 	}
 	if (s.adsr_ctl && s.adsr_len) {
 		if (--x.adsr_count <= 0) {
-			x.adsr_count = s.adsr_speed ? s.adsr_speed : 256;
+			x.adsr_count = table_speed(s.adsr_speed) ? table_speed(s.adsr_speed) : 0x7FFFFFFF;
 			if (x.adsr_pos < s.adsr_len || s.adsr_ctl != 1) {
 				const int k = x.adsr_pos % s.adsr_len;
 				put(out, 3 - v, Reg::VOL, uint32_t((((table_entry(s.adsr_table, k) ^ 0x80) >> 2) * volume) >> 6));
@@ -422,20 +476,12 @@ void Replayer::synth_effects(int v, std::vector<Write> &out) {
 	} else {
 		put(out, 3 - v, Reg::VOL, uint32_t(x.volume_hold >= 0 ? x.volume_hold : volume));
 	}
-	// A restart (V.3 options 9, D, E) puts the position back to 0, keeping the counter.
-	if (x.adsr_restart) {
-		x.adsr_restart = false;
-		if (s.adsr_ctl && s.adsr_len)
-			x.adsr_pos = 0;
-		else
-			x.hold_next = true;
-	}
-
 	// LFO: the period.
 	x.lfo = 0;
 	x.lfo_write = false;
 	if (s.lfo_ctl && s.lfo_len) {
-		int k = entry_index(t, s.lfo_delay, s.lfo_speed);
+		const int lfo_speed = table_speed(s.lfo_speed);
+		int k = entry_index(t, s.lfo_delay, lfo_speed);
 		const int end = v3 ? s.lfo_len : s.lfo_len - 1;
 		bool on = true;
 		if (k >= end && s.lfo_ctl == 1)
@@ -446,10 +492,10 @@ void Replayer::synth_effects(int v, std::vector<Write> &out) {
 			x.lfo = int8_t(table_entry(s.lfo_table, k)) / std::max<int>(s.lfo_depth, 1);
 		// The period is written only on the ticks the table moves on, from 1 + delay. Between
 		// them V.2's Paula holds the last LFO period; V.3's per-tick write puts back the plain one.
-		// At speed 0 it never writes at all (seen over 330 ticks in gapulus).
-		x.lfo_write = s.lfo_speed && t >= 1 + s.lfo_delay && (t - 1 - s.lfo_delay) % s.lfo_speed == 0;
+		// At speed 0 a V.2 LFO never writes at all (gapulus); a V.3 one writes every 256 ticks.
+		x.lfo_write = lfo_speed && t >= 1 + s.lfo_delay && (t - 1 - s.lfo_delay) % lfo_speed == 0;
 		// Played once, it writes the plain period when it ends, then nothing more.
-		if (s.lfo_ctl == 1 && t >= 1 && entry_index(t - 1, s.lfo_delay, s.lfo_speed) >= end)
+		if (s.lfo_ctl == 1 && t >= 1 && entry_index(t - 1, s.lfo_delay, lfo_speed) >= end)
 			x.lfo_write = false;
 		if (x.lfo_write)
 			x.lfo_out = x.period + x.lfo;
@@ -460,48 +506,72 @@ void Replayer::synth_effects(int v, std::vector<Write> &out) {
 
 	// EG: negates the start of the waveform.
 	if (s.eg_ctl && s.eg_len && t >= 1 + s.eg_delay) {
-		int k = entry_index(t, s.eg_delay, s.eg_speed);
+		int k = entry_index(t, s.eg_delay, table_speed(s.eg_speed));
 		if (k >= s.eg_len)
 			k = s.eg_ctl == 1 ? s.eg_len - 1 : k % s.eg_len;
+		// Only the bytes entering or leaving the first n change: an entering byte becomes the
+		// saved copy's byte negated, a leaving one the copy's byte. The rest keep what the FX has
+		// made of them.
 		const int n = (table_entry(s.eg_table, k) ^ 0x80) >> 3;
-		for (int i = 0; i < 32; i++)
+		for (int i = std::min(n, x.eg_n); i < std::max(n, x.eg_n); i++)
 			if (w + uint32_t(i) < empty_)
 				mem_[w + uint32_t(i)] = i < n ? uint8_t(-int8_t(x.copy[i])) : x.copy[i];
+		x.eg_n = n;
+	}
+
+	// Then the FX, on what the EG has left.
+	if (v3) {
+		// FX. Averaging runs on a countdown that only moves while the FX is averaging: from tick
+		// 1 + delay (byte 24) it runs whenever the count is out, and the count restarts at *speed*
+		// (speed 0: it runs once). So averaging switched on by option B or D after that tick runs
+		// at once, then every *speed* ticks. The others run every tick from tick 1, ignoring the
+		// delay, each byte stepping *speed* toward its target; a byte that doesn't land on its
+		// target swings either side of it (speed 0: no change).
+		const int fx_from = 1 + s.fx_delay;
+		bool fx_tick = true;
+		if (x.fx == 1) {
+			fx_tick = false;
+			if (t >= fx_from) {
+				if (x.fx_count == 0) {
+					fx_tick = true;
+					x.fx_count = s.fx_speed ? s.fx_speed : 0x7FFFFFFF;
+				}
+				x.fx_count--;
+			}
+		}
+		if (x.fx && t >= 1 && fx_tick && w + 33 < empty_ && w > 0) {
+			auto sb = [&](uint32_t a) { return int(int8_t(mem_[a])); };
+			const int step = s.fx_speed;
+			if (x.fx == 1) {
+				for (int i = 0; i < 32; i++) {
+					const uint32_t a = w + uint32_t(i);
+					mem_[a] = uint8_t((sb(a - 1) + sb(a + 1)) >> 1);
+				}
+			} else if (x.fx >= 2 && x.fx <= 5) {
+				int target[32];
+				for (int i = 0; i < 32; i++) {
+					if (x.fx == 2)
+						target[i] = int8_t(x.copy[31 - i]);
+					else if (x.fx == 4)
+						target[i] = w + 64 + uint32_t(i) < empty_ ? sb(w + 64 + uint32_t(i)) : 0;
+					else
+						target[i] = int8_t(x.copy[i]);
+				}
+				for (int i = 0; i < 32; i++) {
+					const uint32_t a = w + uint32_t(i);
+					const int b = sb(a);
+					mem_[a] = uint8_t(b < target[i] ? b + step : b > target[i] ? b - step : b);
+				}
+			}
+		}
 	}
 
 	if (!v3)
 		return;
 
-	// FX: the waveform moves toward a target, a step at a time.
-	const int fx_speed = s.fx_speed ? s.fx_speed : 256;
-	if (x.fx && (t - 1) % fx_speed == 0 && w + 33 < empty_ && w > 0) {
-		auto sb = [&](uint32_t a) { return int(int8_t(mem_[a])); };
-		if (x.fx == 1) {
-			for (int i = 0; i < 32; i++) {
-				const uint32_t a = w + uint32_t(i);
-				mem_[a] = uint8_t((sb(a - 1) + sb(a + 1)) >> 1);
-			}
-		} else if (x.fx >= 2 && x.fx <= 5) {
-			int target[32];
-			for (int i = 0; i < 32; i++) {
-				if (x.fx == 2)
-					target[i] = int8_t(x.copy[31 - i]);
-				else if (x.fx == 4)
-					target[i] = w + 64 + uint32_t(i) < empty_ ? sb(w + 64 + uint32_t(i)) : 0;
-				else
-					target[i] = int8_t(x.copy[i]);
-			}
-			for (int i = 0; i < 32; i++) {
-				const uint32_t a = w + uint32_t(i);
-				const int b = sb(a);
-				mem_[a] = uint8_t(b < target[i] ? b + 1 : b > target[i] ? b - 1 : b);
-			}
-		}
-	}
-
 	// Mod: one byte of the waveform from the table.
 	if (s.mod_ctl && s.mod_len && t >= 1 + s.mod_delay && w + 32 < empty_) {
-		int k = entry_index(t, s.mod_delay, s.mod_speed);
+		int k = entry_index(t, s.mod_delay, table_speed(s.mod_speed));
 		if (k >= s.mod_len)
 			k = s.mod_ctl == 1 ? s.mod_len - 1 : k % s.mod_len;
 		mem_[w + 32] = uint8_t(table_entry(s.mod_table, k));

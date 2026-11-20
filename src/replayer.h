@@ -87,9 +87,13 @@ private:
 		bool hold_next = false;  // V.3: a restart on a synth without ADSR writes on the next tick
 		int volume_hold = -1;    // V.3: the volume such a restart left
 		int fx = 0;
+		int fx_count = 0;        // V.3: ticks until the averaging FX runs again (it counts only while averaging)
+		int eg_n = 0;            // how many bytes of the waveform the EG has negated
+		int fx_next = -1;        // V.3: an FX type set by option B or D, taken up after this tick
 		uint32_t wave_at = 0;    // the waveform being rewritten (0 = none)
 		uint8_t copy[32] = {};
 		bool has_copy = false;
+		bool copy_pending = false;  // V.3: a synth note's copy, taken after the row
 	};
 
 	void process_row();
@@ -98,8 +102,11 @@ private:
 	void synth_effects(int v, std::vector<Write> &out);
 	void restore_copy(Voice &voice);
 	void take_copy(Voice &voice, uint32_t at);
+	void note_copy(Voice &voice);
 	int period_of(int note) const;
 	int table_entry(int table, int index) const;
+	int table_speed(int speed) const;
+	// The table entry at tick t (since the note), for an effective speed (0 = never moves on).
 	static int entry_index(int t, int delay, int speed);
 
 	void put(std::vector<Write> &out, int channel, Reg reg, uint32_t value) {

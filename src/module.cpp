@@ -101,6 +101,11 @@ bool Module::load(const uint8_t *data, size_t size) {
 				s.eg_speed = p[24];
 				s.volume = p[25];
 			}
+			// A table length of 0 doesn't stop the table: it runs on through the following
+			// waveforms (traced for ADSR and EG), as 65536 would.
+			for (int *len : {&s.adsr_len, &s.lfo_len, &s.eg_len, &s.mod_len})
+				if (*len == 0)
+					*len = 65536;
 		} else {
 			Sample &s = ins.sample;
 			s.name.assign(reinterpret_cast<const char *>(p), 24);

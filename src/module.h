@@ -22,14 +22,16 @@ struct Synth {
 	uint8_t wave = 0;
 	uint16_t words = 0;
 	uint8_t adsr_ctl = 0, adsr_table = 0, adsr_speed = 0;
-	uint16_t adsr_len = 0;
+	int adsr_len = 0;  // table lengths in bytes; 0 in the file means 65536 (the table runs on)
 	uint8_t lfo_ctl = 0, lfo_table = 0, lfo_depth = 0, lfo_speed = 0;
-	uint16_t lfo_len = 0, lfo_delay = 0;
+	int lfo_len = 0;
+	uint16_t lfo_delay = 0;
 	uint8_t eg_ctl = 0, eg_table = 0, eg_speed = 0, eg_b19 = 0;
-	uint16_t eg_len = 0, eg_delay = 0;
+	int eg_len = 0;
+	uint16_t eg_delay = 0;
 	uint8_t fx = 0, fx_speed = 0, fx_delay = 0;  // V.3
 	uint8_t mod_ctl = 0, mod_table = 0, mod_speed = 0, mod_delay = 0;
-	uint16_t mod_len = 0;
+	int mod_len = 0;
 	uint8_t volume = 0;
 };
 

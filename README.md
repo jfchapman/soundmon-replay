@@ -60,7 +60,9 @@ The header documents the rest:
 
 - `tests/compare.py <profile> <ticks> <songs...>` compares the library with an original replayer,
   tick by tick. The originals run in a private harness (soundmon-trace, WinUAE savestates of games
-  and music disks), so this test needs that repository next to this one.
+  and music disks), so this test needs that repository next to this one. `--mem` also compares
+  the song's waveform area (which the synth effects rewrite) after every tick; `-v` shows the
+  first differences.
 - `tests/featuresongs.py <folder>` writes about 110 small test songs, each using one feature (an
   option or a synth effect), as V.2 and V.3 files, for compare.py.
 
@@ -72,7 +74,8 @@ SoundMon 1 build):
 - **Test songs:** every feature test song matches exactly, except one V.3 corner: option D on a
   row with no note, on a synth with FX and no ADSR.
 - **Real songs:** the whole modland corpus (336 files) matches exactly over 2,000 ticks (40
-  seconds) each, with these exceptions:
+  seconds) each, in Paula's registers and in the waveforms the synth effects rewrite, with these
+  exceptions:
   - Three V.2 files are too large for the reference profile's memory, so they aren't compared.
   - Two V.2 files (chris, nr.1) play an instrument number beyond 15, which can't be reproduced
     (see below).

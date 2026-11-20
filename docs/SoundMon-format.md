@@ -179,7 +179,7 @@ confirmed by a test song on the Plexu build (§6).
 | 16 | 1 | LFO speed | 1 (905), 2, 0 |
 | 17 | 1 | EG control | 0, 1, 2 |
 | 18 | 1 | EG table | |
-| 19 | 1 | Unknown. With the EG on, any non-zero value negates 128 bytes (two waveforms) from tick 0. Five files set it (20, 1, 32) [open] | |
+| 19 | 1 | With the EG on, values of 8 and up start the note with the first (byte 19 >> 3) bytes (at most 31) negated, and the EG carries on from there [traced with waveform memory compared]. Values 1-7 do something else, not traced: no file sets them with the EG on. Five files set it (20, 1, 32) | |
 | 20 | 2 | EG table length in bytes | 64 (870), 16, 128 |
 | 22 | 2 | EG delay, a word. A non-zero high byte (22) delays the EG past the end of the test | 0 (1,038), 6 |
 | 24 | 1 | EG speed | 1 (721), 0, 2 |
@@ -345,8 +345,19 @@ effect, except where noted. The Commando player runs every synth effect one tick
 - **Effect order:** the effects rewrite the waveform in the song's memory. Each tick they work
   from a 32-byte copy of the waveform's first 32 bytes, saved when the note starts. Bytes beyond
   32 are left alone, except for Mod's byte 32.
-- **When the waveform is restored:** on the next note (any instrument) the copy is written back,
-  so the waveform starts the note as in the file.
+- **Which notes take a copy, and when** [traced with waveform memory compared]:
+  - **V.2:** every synth note, at the note, as its voice reads the row. Another voice's changes
+    to a shared waveform are in the copy if they are still in memory then; in Paula channel
+    order, a voice read earlier on the row hasn't yet put back the copy of a later one (frantic
+    freddie, yes, raider).
+  - **V.3:** only an instrument with a waveform effect: the EG on, an FX type or Mod. One with
+    none of them takes no copy, never rewrites its waveform, and options B and D can't give it an
+    FX later (blockbrain). The copy is taken once every voice has read the row, so the other
+    voices' notes on that row have put their own copies back first, but the changes of a voice
+    still playing the waveform are in it (frantic freddie, newmod5).
+- **When the waveform is restored:** on the voice's next note (any instrument) its copy is
+  written back, so the waveform is as it was when the copy was taken. A V.3 voice without a copy
+  writes nothing back, and leaves another voice's changes alone (pandora.bs).
 - **What persists:** the effects' state isn't reset when a song starts. A song ripped from
   memory can differ from the file by a few bytes. A song that starts on another song's
   rewritten waveform also starts differently: this is history. The library starts every song
@@ -363,9 +374,12 @@ starting at waveform *table* and *length* bytes long. A table can run on into th
 - Entry k ≥ 1 applies from tick 1 + *delay* + k × *speed*.
 - ADSR has no delay field and works by a counter (§6.3).
 
-**Speed 0:**
-- ADSR and EG: the slowest (256 ticks per entry).
-- LFO: never writes at all.
+**Speed 0** [traced with waveform memory compared]:
+- V.3: the slowest, 256 ticks per entry (ADSR, LFO, EG and Mod).
+- V.2: the table never moves on from entry 0, and the LFO never writes at all (labello, gapulus).
+
+**Length 0:** the table doesn't stop: it runs on through the following waveforms, as a length of
+65536 would (traced for ADSR and EG; hawkeye.bp).
 
 **Control byte:**
 - **0:** off.
@@ -388,7 +402,8 @@ starting at waveform *table* and *length* bytes long. A table can run on into th
   entry 1 on tick 1 + speed.
 - A V.3 restart (option E, D, or 9 on a row with no note) only puts the position back to 0. The
   counter's rhythm carries on, so entry 0 comes at its next step.
-- In V.3 the synth part uses the volume from before this tick's row.
+- In V.3 the synth part runs before the row is read (§7), so it uses the volume from before the
+  row, and anything a row changes is heard from the next tick.
 
 **Order of the voices:** voices are handled in Paula channel order. This matters when one voice's
 ADSR table is another voice's waveform that an EG is rewriting.
@@ -398,40 +413,60 @@ ADSR table is another voice's waveform that an EG is rewriting.
 **Period** = note period + (signed *entry*) / *depth*, truncated toward zero; depth 0 counts as 1.
 A positive entry lowers the pitch.
 
-**When it's written:** only on the ticks the table moves on, from tick 1 + delay, and never at
-speed 0.
+**When it's written:** only on the ticks the table moves on, from tick 1 + delay (speed 0: never
+in V.2, every 256 ticks in V.3).
 - **V.2:** the per-tick period write skips a synth with an LFO, so Paula holds the LFO's last
   period between those ticks. The LFO's period is taken before this tick's slide.
 - **V.3:** the per-tick period write puts back the plain period between those ticks, and the LFO
   adds to the period from before this tick's row.
+- **Played once:** at its end it writes the plain period once, then nothing.
 
 ### 6.5 EG (negation)
 
-Each tick the EG negates the first N bytes of the waveform, counting from the saved copy, where
-N = (*entry* XOR $80) >> 3 (0-31). Bytes from N on keep the copy's value, so a falling N gives the
-bytes back.
+The EG keeps the first N bytes of the waveform negated, where N = (*entry* XOR $80) >> 3 (0-31). It
+works only on the bytes that enter or leave that range [traced with waveform memory compared]:
+- a byte entering it becomes the saved copy's byte, negated;
+- a byte leaving it becomes the copy's byte;
+- the bytes that stay inside keep whatever the FX has made of them since.
+
+On its own, that's the same as negating the copy's first N bytes every tick.
 - The first change is on tick 1.
+- It runs before the FX in each tick.
 - N doesn't depend on the waveform length. A 16-byte waveform with N = 31 has bytes negated past
   its end.
-- V.2 byte 19 is unknown (§2.1).
+- V.2 byte 19 starts the note with bytes already negated (§2.1).
 
 ### 6.6 FX (V.3 only)
 
-The FX change the copy's 32 bytes on tick 1 and then every *FX speed* ticks. Byte 23 sets the
-interval. Byte 24 (*FX delay*) had no effect in any test.
+The FX change the waveform's first 32 bytes from tick 1 on, after the EG [traced with waveform
+memory compared]. Byte 23, *FX speed*, means two different things:
+- **Averaging:** it runs on a countdown that only moves while the type is averaging. From tick
+  1 + *delay* (byte 24) it runs whenever the count is out, and the count restarts at *speed*. So
+  on a note it runs on tick 1 + delay and then every *speed* ticks; at speed 0 it runs once.
+  Averaging switched on later by option B or D runs on the next tick, then every *speed* ticks
+  from there (ok.bp3).
+- **The other four:** they run every tick, and each byte steps *speed* toward its target.
+  - A byte that doesn't land exactly on its target swings either side of it: 1, −2, 1, −2 for a
+    target of 0 at speed 3.
+  - Speed 0 changes nothing.
+
+Byte 24 (*FX delay*) delays only averaging (novel, spacy); the other types ignore it.
 - **1, averaging:**
   - Each byte becomes the mean of its new left neighbour and its old right neighbour:
     b'[i] = (b'[i−1] + b[i+1]) >> 1, with arithmetic shift.
   - b'[0] uses the byte just before the waveform in memory, and b'[31] uses byte 32.
   - It repeats on itself, so the waveform smooths further each time.
-- **2, inversion:** each byte moves 1 toward the time-reversed waveform (b[31−i] of the copy).
-- **3, inverse inversion:** each byte moves 1 back toward the copy. On a fresh note nothing
+- **2, inversion:** each byte moves toward the time-reversed waveform (b[31−i] of the copy).
+- **3, inverse inversion:** each byte moves back toward the copy. On a fresh note nothing
   changes.
-- **4, transform:** each byte moves 1 toward the next waveform (main waveform + 1).
-- **5, inverse transform:** moves 1 back toward the copy.
+- **4, transform:** each byte moves toward the next waveform (main waveform + 1).
+- **5, inverse transform:** moves back toward the copy.
 
-Option D swaps 2↔3 and 4↔5 without restarting, and option B sets the type. Neither changes the
-copy.
+Options B and D change the type from the next tick, and neither changes the copy.
+- **Option D** flips the type's lowest bit, without restarting anything. That swaps 2↔3 and 4↔5,
+  and switches averaging (1) off.
+- **Option B** sets the type, but only on a row without a note. A note that restarts the sound
+  sets its instrument's own type.
 
 ### 6.7 Mod (V.3 only)
 
@@ -444,9 +479,6 @@ speed 1.
 - V.2 bytes 14 and 19 (§2.1).
 - The Commando player's leftover synth period differences: they show up once its one-tick shift
   is allowed for.
-- Two effects on one instrument at once: whether the EG and FX both write the copy, and in which
-  order.
-- Whether a waveform shared by two voices interacts (both rewrite the same memory).
 
 ## 7. The tick, in order [traced]
 
@@ -485,13 +517,15 @@ current block.
    - Counter 1 gives the low nibble's offset, 0 the high nibble's, 3 and 2 the note.
    - It's stored in the period variable, so it overwrites the slide; a stopped arpeggio leaves
      the period where it was, and the next tick's write repeats it.
-6. The period and volume are noted for the synth part.
+6. The synth part for each synth voice that has played: ADSR, LFO (period written only on its
+   ticks), EG, FX and Mod.
+   - It runs before the row, so on a note's tick it carries on with the old note's state.
+   - Anything the row changes (options 1, 9, B, D, E, a new note) is taken up on the next tick.
 7. The tick counter steps, and the row is read as in V.2.
    - A looped sample starts with LEN = loop start / 2 + loop length, and moves to its loop on the
      next tick.
    - Option 7 takes effect when the next row is read.
-8. The synth part for each synth voice that didn't start a note this tick (E/F rows count as no
-   note): ADSR, LFO (period written only on its ticks), EG, FX and Mod.
+   - The synth notes' waveform copies are taken once the whole row has been read (§6.1).
 
 ## 8. Method
 
@@ -504,7 +538,7 @@ current block.
 ## 9. Open questions
 
 1. V.2 synth bytes 14 and 19 (§2.1).
-2. The synth cases in §6.8: shared waveforms, and the Commando player's leftover differences.
+2. The Commando player's leftover synth differences (§6.8).
 3. V.3 option D on a row with no note, on a synth with FX and no ADSR: the single volume it
    writes reads a table byte that the FX has rewritten, and which byte isn't known.
 4. Transposes that go out of range, and instrument numbers beyond 15 after the sound transpose.
