@@ -476,7 +476,7 @@ speed 1.
 
 ### 6.8 Still open
 
-- V.2 bytes 14 and 19 (§2.1).
+- V.2 byte 14, and byte 19's values 1-7 (§2.1). No file uses them with the EG on.
 - The Commando player's leftover synth period differences: they show up once its one-tick shift
   is allowed for.
 
@@ -532,16 +532,27 @@ current block.
 - **Test songs** use one feature at a time: probes/testsong.py, trace_options.py and
   trace_synth.py in soundmon-trace, and tests/featuresongs.py here.
 - **tests/compare.py** compares the library with an original replayer, tick by tick, on those
-  songs and on the corpus.
+  songs and on the corpus: Paula's registers, and with `--mem` the waveform area the synth
+  effects rewrite.
+- **WinUAE recordings** (48 kHz, 100% separation, no interpolation, no filter) check the sound:
+  each tick's level and spectrum against a render without filters, which allows for Paula's
+  timing within a tick.
 - **Each result** goes into this document with its status mark, then into the library.
+
+**Covered so far:** every feature test song; the modland corpus over 2,000 ticks per song (all but
+the files listed below), on the V.2, V.3 and SoundMon 1 builds above, plus the Jeah2 and Dark
+Angel 2 V.3 builds on their own songs; recordings of the 1.1 editor (V.2: the test songs and
+its 13 example songs) and of OrchDelight (V.3: its seven songs, each from its start), which match
+in level and tone.
 
 ## 9. Open questions
 
-1. V.2 synth bytes 14 and 19 (§2.1).
+1. V.2 synth byte 14, and byte 19's values 1-7 (§2.1). No file uses them with the EG on.
 2. The Commando player's leftover synth differences (§6.8).
 3. V.3 option D on a row with no note, on a synth with FX and no ADSR: the single volume it
    writes reads a table byte that the FX has rewritten, and which byte isn't known.
 4. Transposes that go out of range, and instrument numbers beyond 15 after the sound transpose.
    The original then reads its instrument from whatever memory follows the table (nr.1.bp).
-5. A second V.3 build and a capture of a V.3 song from its start (wanted; see soundmon-trace's
-   NOTES.md).
+5. Three V.2 files too large for the reference profile's memory (acid mix, freddy - mix,
+   lightstorm) haven't been compared.
+6. No recording of a SoundMon 1 song yet (a Music Mania savestate would do).
