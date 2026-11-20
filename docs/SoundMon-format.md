@@ -406,9 +406,12 @@ The collection has 336 files: 1 `BPSM`, 214 `V.2` and 121 `V.3`.
 | The modland collection | Every file exact over 2,000 ticks (40 seconds), registers and waveforms, on the *Plexu* (V.2), *Taipan* (V.3) and *Music Mania* (SoundMon 1) builds, apart from *chris* and *nr.1* (§11). The three V.2 songs too big for *Plexu*'s memory beside the replayer were run from slow RAM, where the replayer's writes are the same |
 | Other builds | *Jeah2* and *Dark Angel 2* exact on their own songs; the V.2 builds identical on 40 random songs from a fresh start |
 | *Music Mania*'s eight songs, from its memory | Exact, apart from one note in *The Short One* (§5) |
-| The SoundMon 1.1 editor in WinUAE | Its register writes match on 1,300 of 1,300 ticks of *Pulsarmix*. Recordings of its 13 example songs and of three test songs agree in level, and the test songs in every tick's pitch and volume |
+| The SoundMon 1.1 editor in WinUAE | Its register writes match on 1,300 of 1,300 ticks of *Pulsarmix*. Recordings of its 13 example songs and of three test songs agree in level, and the test songs in every tick's pitch and volume. Five of the example songs compared in full: level within 0.06 dB, median band difference 0.4–1.6 dB |
+| Recording of *Alien Breed*'s menu (V.2, in the game) | Level within 0.01 dB, median band difference 0.3 dB, spectra flat within ±0.1 dB, until the game itself fades the music out |
 | Recordings of *OrchDelight* (V.3) | All seven songs, each from its start: overall level within 0.04 dB, median tick level within 0.6 dB, median band difference 0.1–1.6 dB, spectra flat within ±0.1 dB on average |
 | Recordings of *Music Mania* (SoundMon 1) | Three songs: level within 0.01 dB, median band difference 0.13–0.42 dB |
+
+**Listening.** Whether the remaining differences can be heard was checked with a blind test: for each of six songs (*Future II* and *Blockbrain* from *OrchDelight*, *Alien Breed*'s menu, and the editor's *Greenberet*, *Newdimention* and *Pulsarmix*), one file made of random 3–9 second stretches taken in turn from the WinUAE recording and from SoundMonReplay, each stretch lined up with the recording and joined with a 20 ms crossfade. No transition could be heard at any of the 129 joins.
 
 ---
 
