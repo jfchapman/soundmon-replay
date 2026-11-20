@@ -1,6 +1,6 @@
 # SoundMonReplay
 
-A C library that renders Brian Postma's SoundMon songs (Amiga, 1990-1993): BP SoundMon 1
+A C library that renders Brian Postma's SoundMon songs (Amiga, from 1989): BP SoundMon 1
 (`BPSM`), 2 (`V.2`) and 3 (`V.3`) files, as found in modland's `BP SoundMon 1/2/3` folders.
 
 It's a clean-room replayer: written from a description of the format (docs/SoundMon-format.md)
@@ -71,19 +71,29 @@ The header documents the rest:
 Compared against the original replayers (Plexu's V.2 build, Taipan's V.3 build, Music Mania's
 SoundMon 1 build):
 
-- **Test songs:** every feature test song matches exactly, except one V.3 corner: option D on a
-  row with no note, on a synth with FX and no ADSR.
+- **Test songs:** every feature test song matches exactly.
 - **Real songs:** the whole modland corpus (336 files) matches exactly over 2,000 ticks (40
-  seconds) each, in Paula's registers and in the waveforms the synth effects rewrite, with these
-  exceptions:
-  - Three V.2 files are too large for the reference profile's memory, so they aren't compared.
-  - Two V.2 files (chris, nr.1) play an instrument number beyond 15, which can't be reproduced
-    (see below).
+  seconds) each, in Paula's registers and in the waveforms the synth effects rewrite, except two
+  V.2 files (chris, nr.1) that play an instrument number beyond 15, which can't be reproduced
+  (see below). Music Mania's eight SoundMon 1 songs match too, except for the period written for
+  one note in The Short One, which plays the same (see below).
+- **Recordings:** WinUAE recordings of V.2, V.3 and SoundMon 1 songs match in level and tone.
 
 Known differences from the Amiga:
 - A sample instrument of length 0 plays silence here. On the Amiga it plays 65,536 words of
   whatever memory follows the song.
 - An instrument number beyond 15 (when a step's sound transpose pushes it there) plays silence
   here. The original reads an instrument from whatever memory follows its table.
+- In SoundMon 1 songs, a note above 36 (after the transpose) plays from the later versions' period
+  table here. Music Mania's build reads past the end of its table instead; odd notes sound the
+  same (Paula's fastest rate), even notes play a very low rumble there.
 - History isn't modelled: every song starts from the replayer's fresh state, whereas a game that
   plays one song after another without resetting carries some state over.
+
+## AI Disclaimer
+
+This project uses AI development tools (Claude Code by Anthropic).
+
+## Licence
+
+MIT: see [LICENSE](LICENSE).
