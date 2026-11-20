@@ -18,7 +18,7 @@ set(SMON_SOURCES
 
 if(SMON_BUILD_SHARED)
 	add_library(soundmonreplay SHARED ${SMON_SOURCES})
-	target_compile_definitions(soundmonreplay PUBLIC SMON_SHARED PRIVATE SMON_BUILDING)
+	target_compile_definitions(soundmonreplay PUBLIC SMON_SHARED)  # soundmonreplay.cpp defines SMON_BUILDING itself
 	set_target_properties(soundmonreplay PROPERTIES CXX_VISIBILITY_PRESET hidden VERSION ${PROJECT_VERSION} SOVERSION 0)
 else()
 	add_library(soundmonreplay STATIC ${SMON_SOURCES})
